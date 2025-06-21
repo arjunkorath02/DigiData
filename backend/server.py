@@ -14,10 +14,10 @@ import aiofiles
 from io import BytesIO
 
 # Import our models and utilities
-from models import *
-from auth import *
-from file_manager import file_manager
-from database import DatabaseManager
+from .models import *
+from .auth import *
+from .file_manager import file_manager
+from .database import DatabaseManager
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
