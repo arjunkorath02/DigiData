@@ -616,7 +616,7 @@ export const Dashboard = ({ user, onLogout }) => {
   const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [files, setFiles] = useState(mockFiles);
+  const [files, setFiles] = useState([]);
 
   const filteredFiles = files.filter(file =>
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
