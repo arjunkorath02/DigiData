@@ -499,7 +499,27 @@ export const Header = ({ user, onLogout, viewMode, setViewMode, searchQuery, set
 };
 
 // File Grid Component
-export const FileGrid = ({ files, viewMode, onFileClick }) => {
+export const FileGrid = ({ files, viewMode, onFileClick, onFileAction }) => {
+  const formatSize = (bytes) => {
+    if (!bytes) return '';
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now - date;
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return `${days} days ago`;
+    if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+    return date.toLocaleDateString();
+  };
+
   if (viewMode === 'list') {
     return (
       <div className="bg-gray-900">
@@ -513,25 +533,58 @@ export const FileGrid = ({ files, viewMode, onFileClick }) => {
           {files.map((file) => (
             <div
               key={file.id}
-              onClick={() => onFileClick(file)}
-              className="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-gray-800 cursor-pointer transition-colors"
+              className="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-gray-800 cursor-pointer transition-colors group"
             >
-              <div className="col-span-6 flex items-center space-x-3">
+              <div 
+                className="col-span-6 flex items-center space-x-3"
+                onClick={() => onFileClick(file)}
+              >
                 <span className="text-2xl">{file.icon}</span>
                 <span className="text-white truncate">{file.name}</span>
+                {file.is_starred && <span className="text-yellow-400">⭐</span>}
               </div>
               <div className="col-span-2 text-gray-400 text-sm flex items-center">
-                {file.modified}
+                {formatDate(file.modified_at)}
               </div>
               <div className="col-span-2 text-gray-400 text-sm flex items-center">
-                {file.size}
+                {formatSize(file.size)}
               </div>
-              <div className="col-span-2 flex items-center justify-end">
-                <button className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
-                  </svg>
-                </button>
+              <div className="col-span-2 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center space-x-1">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onFileAction(file, 'star');
+                    }}
+                    className="p-2 text-gray-400 hover:text-yellow-400 rounded-lg hover:bg-gray-700"
+                    title={file.is_starred ? 'Remove from starred' : 'Add to starred'}
+                  >
+                    {file.is_starred ? '⭐' : '☆'}
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onFileAction(file, 'download');
+                    }}
+                    className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700"
+                    disabled={file.type === 'folder'}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onFileAction(file, 'delete');
+                    }}
+                    className="p-2 text-gray-400 hover:text-red-400 rounded-lg hover:bg-gray-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -545,29 +598,55 @@ export const FileGrid = ({ files, viewMode, onFileClick }) => {
       {files.map((file) => (
         <div
           key={file.id}
-          onClick={() => onFileClick(file)}
-          className="bg-gray-800 hover:bg-gray-700 rounded-lg p-4 cursor-pointer transition-colors group"
+          className="bg-gray-800 hover:bg-gray-700 rounded-lg p-4 cursor-pointer transition-colors group relative"
         >
-          <div className="flex flex-col items-center text-center">
-            <div className="w-16 h-16 mb-3 flex items-center justify-center rounded-lg" style={{ backgroundColor: file.color + '20' }}>
+          <div 
+            className="flex flex-col items-center text-center"
+            onClick={() => onFileClick(file)}
+          >
+            <div className="w-16 h-16 mb-3 flex items-center justify-center rounded-lg relative" style={{ backgroundColor: file.color + '20' }}>
               <span className="text-3xl">{file.icon}</span>
+              {file.is_starred && (
+                <span className="absolute -top-1 -right-1 text-yellow-400 text-sm">⭐</span>
+              )}
             </div>
             <h3 className="text-white text-sm font-medium truncate w-full mb-1">
               {file.name}
             </h3>
             <p className="text-gray-400 text-xs">
-              {file.modified}
+              {formatDate(file.modified_at)}
             </p>
-            {file.size && (
+            {file.size > 0 && (
               <p className="text-gray-400 text-xs">
-                {file.size}
+                {formatSize(file.size)}
               </p>
             )}
           </div>
-          <div className="mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button className="w-full bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded">
-              Open
-            </button>
+          
+          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center space-x-1">
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFileAction(file, 'star');
+                }}
+                className="p-1 text-gray-400 hover:text-yellow-400 rounded"
+                title={file.is_starred ? 'Remove from starred' : 'Add to starred'}
+              >
+                {file.is_starred ? '⭐' : '☆'}
+              </button>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFileAction(file, 'menu');
+                }}
+                className="p-1 text-gray-400 hover:text-white rounded"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       ))}
@@ -576,35 +655,180 @@ export const FileGrid = ({ files, viewMode, onFileClick }) => {
 };
 
 // Upload Modal Component
-export const UploadModal = ({ isOpen, onClose }) => {
+export const UploadModal = ({ isOpen, onClose, onUpload }) => {
+  const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = React.createRef();
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleFiles = async (files) => {
+    setUploading(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        await onUpload(files[i]);
+      }
+      onClose();
+    } catch (error) {
+      console.error('Upload failed:', error);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-xl font-semibold text-white mb-4">Upload Files</h2>
-        <div className="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center">
+        <div 
+          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+            dragActive ? 'border-blue-500 bg-blue-500/10' : 'border-gray-600'
+          }`}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
           <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
           </svg>
           <p className="text-gray-300 mb-2">Drag and drop files here</p>
           <p className="text-gray-400 text-sm mb-4">or</p>
-          <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
-            Select Files
+          <button 
+            onClick={onButtonClick}
+            disabled={uploading}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+          >
+            {uploading ? 'Uploading...' : 'Select Files'}
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={(e) => handleFiles(e.target.files)}
+            style={{ display: 'none' }}
+          />
         </div>
         <div className="flex justify-end space-x-3 mt-6">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-300 hover:text-white"
+            disabled={uploading}
+            className="px-4 py-2 text-gray-300 hover:text-white disabled:opacity-50"
           >
             Cancel
           </button>
-          <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
-            Upload
-          </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// Create Folder Modal Component
+export const CreateFolderModal = ({ isOpen, onClose, onCreate }) => {
+  const [folderName, setFolderName] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!folderName.trim()) return;
+
+    setCreating(true);
+    try {
+      await onCreate(folderName.trim());
+      setFolderName('');
+      onClose();
+    } catch (error) {
+      console.error('Folder creation failed:', error);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+        <h2 className="text-xl font-semibold text-white mb-4">Create Folder</h2>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="Folder name"
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              className="w-full px-3 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={creating}
+              className="px-4 py-2 text-gray-300 hover:text-white disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={creating || !folderName.trim()}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {creating ? 'Creating...' : 'Create'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// Breadcrumb Component
+export const Breadcrumb = ({ breadcrumbs, onNavigate }) => {
+  return (
+    <div className="flex items-center space-x-2 text-sm text-gray-400 mb-4">
+      {breadcrumbs.map((crumb, index) => (
+        <React.Fragment key={crumb.id || 'root'}>
+          <button
+            onClick={() => onNavigate(crumb.id)}
+            className={`hover:text-white transition-colors ${
+              index === breadcrumbs.length - 1 ? 'text-white font-medium' : 'text-gray-400'
+            }`}
+          >
+            {crumb.name}
+          </button>
+          {index < breadcrumbs.length - 1 && (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          )}
+        </React.Fragment>
+      ))}
     </div>
   );
 };
