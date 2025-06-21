@@ -5,7 +5,7 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional
 import os
-from models import User, UserResponse
+from .models import User, UserResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 security = HTTPBearer()
