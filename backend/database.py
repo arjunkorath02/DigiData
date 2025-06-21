@@ -1,5 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from models import FileItem, User, FileItemResponse
+from .models import FileItem, User, FileItemResponse
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import os
