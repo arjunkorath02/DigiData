@@ -1,28 +1,176 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 
-// Mock data for files and folders
-const mockFiles = [
-  { id: 1, name: 'Projects', type: 'folder', size: '', modified: '2 days ago', icon: '📁', color: '#4285f4' },
-  { id: 2, name: 'Documents', type: 'folder', size: '', modified: '1 week ago', icon: '📁', color: '#34a853' },
-  { id: 3, name: 'Photos', type: 'folder', size: '', modified: '3 days ago', icon: '📁', color: '#fbbc05' },
-  { id: 4, name: 'Presentation.pptx', type: 'file', size: '2.4 MB', modified: '1 hour ago', icon: '📊', color: '#ea4335' },
-  { id: 5, name: 'Resume.pdf', type: 'file', size: '1.2 MB', modified: '2 days ago', icon: '📄', color: '#ea4335' },
-  { id: 6, name: 'Spreadsheet.xlsx', type: 'file', size: '856 KB', modified: '5 days ago', icon: '📈', color: '#34a853' },
-  { id: 7, name: 'Video.mp4', type: 'file', size: '45.6 MB', modified: '1 week ago', icon: '🎥', color: '#fbbc05' },
-  { id: 8, name: 'Music.mp3', type: 'file', size: '5.2 MB', modified: '3 days ago', icon: '🎵', color: '#9c27b0' },
-  { id: 9, name: 'Design.sketch', type: 'file', size: '12.8 MB', modified: '4 days ago', icon: '🎨', color: '#ff9800' },
-  { id: 10, name: 'Code.zip', type: 'file', size: '8.9 MB', modified: '1 day ago', icon: '💻', color: '#607d8b' },
-];
+const API_BASE_URL = process.env.REACT_APP_BACKEND_URL + '/api';
+
+// API Service
+class ApiService {
+  constructor() {
+    this.token = localStorage.getItem('token');
+    this.axios = axios.create({
+      baseURL: API_BASE_URL,
+    });
+
+    // Add token to requests
+    this.axios.interceptors.request.use((config) => {
+      if (this.token) {
+        config.headers.Authorization = `Bearer ${this.token}`;
+      }
+      return config;
+    });
+
+    // Handle token expiration
+    this.axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          this.logout();
+        }
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  setToken(token) {
+    this.token = token;
+    localStorage.setItem('token', token);
+  }
+
+  logout() {
+    this.token = null;
+    localStorage.removeItem('token');
+    window.location.reload();
+  }
+
+  // Auth methods
+  async login(email, password) {
+    const response = await this.axios.post('/auth/login', { email, password });
+    this.setToken(response.data.access_token);
+    return response.data;
+  }
+
+  async register(name, email, password) {
+    const response = await this.axios.post('/auth/register', { name, email, password });
+    this.setToken(response.data.access_token);
+    return response.data;
+  }
+
+  async getCurrentUser() {
+    const response = await this.axios.get('/auth/me');
+    return response.data;
+  }
+
+  // File methods
+  async uploadFile(file, parentId = null) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (parentId) {
+      formData.append('parent_id', parentId);
+    }
+    const response = await this.axios.post('/files/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return response.data;
+  }
+
+  async createFolder(name, parentId = null) {
+    const response = await this.axios.post('/folders', {
+      name,
+      type: 'folder',
+      parent_id: parentId
+    });
+    return response.data;
+  }
+
+  async getFiles(folderId = null) {
+    const response = await this.axios.get('/files', {
+      params: folderId ? { folder_id: folderId } : {}
+    });
+    return response.data;
+  }
+
+  async searchFiles(query) {
+    const response = await this.axios.get('/files/search', { params: { q: query } });
+    return response.data;
+  }
+
+  async getRecentFiles() {
+    const response = await this.axios.get('/files/recent');
+    return response.data;
+  }
+
+  async getStarredFiles() {
+    const response = await this.axios.get('/files/starred');
+    return response.data;
+  }
+
+  async getSharedFiles() {
+    const response = await this.axios.get('/files/shared');
+    return response.data;
+  }
+
+  async getTrashedFiles() {
+    const response = await this.axios.get('/files/trash');
+    return response.data;
+  }
+
+  async updateFile(fileId, data) {
+    const response = await this.axios.put(`/files/${fileId}`, data);
+    return response.data;
+  }
+
+  async deleteFile(fileId, permanent = false) {
+    const response = await this.axios.delete(`/files/${fileId}`, {
+      params: { permanent }
+    });
+    return response.data;
+  }
+
+  async downloadFile(fileId) {
+    const response = await this.axios.get(`/files/${fileId}/download`, {
+      responseType: 'blob'
+    });
+    return response;
+  }
+
+  async shareFile(fileId, userEmail, permission) {
+    const response = await this.axios.post(`/files/${fileId}/share`, {
+      file_id: fileId,
+      user_email: userEmail,
+      permission
+    });
+    return response.data;
+  }
+}
+
+const apiService = new ApiService();
 
 // Login Page Component
 export const LoginPage = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [isRegister, setIsRegister] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (email && password) {
-      onLogin({ email, name: email.split('@')[0] });
+    setLoading(true);
+    setError('');
+
+    try {
+      let result;
+      if (isRegister) {
+        result = await apiService.register(name, email, password);
+      } else {
+        result = await apiService.login(email, password);
+      }
+      onLogin(result.user);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Authentication failed');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -38,12 +186,38 @@ export const LoginPage = ({ onLogin }) => {
             </div>
             <h1 className="ml-3 text-3xl font-bold text-white">Drive</h1>
           </div>
-          <h2 className="text-2xl font-semibold text-white mb-2">Sign in</h2>
+          <h2 className="text-2xl font-semibold text-white mb-2">
+            {isRegister ? 'Create Account' : 'Sign in'}
+          </h2>
           <p className="text-gray-400">to continue to Google Drive</p>
         </div>
         
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          {error && (
+            <div className="bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded-lg">
+              {error}
+            </div>
+          )}
+
           <div className="space-y-4">
+            {isRegister && (
+              <div>
+                <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
+                  Full Name
+                </label>
+                <input
+                  id="name"
+                  name="name"
+                  type="text"
+                  required={isRegister}
+                  className="w-full px-3 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter your full name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+            )}
+            
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
                 Email or phone
@@ -68,7 +242,7 @@ export const LoginPage = ({ onLogin }) => {
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete={isRegister ? "new-password" : "current-password"}
                 required
                 className="w-full px-3 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter your password"
@@ -80,33 +254,24 @@ export const LoginPage = ({ onLogin }) => {
 
           <div className="flex items-center justify-between">
             <div className="text-sm">
-              <a href="#" className="text-blue-400 hover:text-blue-300">
-                Forgot email?
-              </a>
-            </div>
-            <div className="text-sm">
-              <a href="#" className="text-blue-400 hover:text-blue-300">
-                Create account
-              </a>
+              <button
+                type="button"
+                onClick={() => setIsRegister(!isRegister)}
+                className="text-blue-400 hover:text-blue-300"
+              >
+                {isRegister ? 'Already have an account? Sign in' : 'Create account'}
+              </button>
             </div>
           </div>
 
           <div>
             <button
               type="submit"
-              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-200"
+              disabled={loading}
+              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-200 disabled:opacity-50"
             >
-              Sign in
+              {loading ? 'Loading...' : (isRegister ? 'Create Account' : 'Sign in')}
             </button>
-          </div>
-
-          <div className="text-center">
-            <p className="text-xs text-gray-400">
-              Not your computer? Use Guest mode to sign in privately.{' '}
-              <a href="#" className="text-blue-400 hover:text-blue-300">
-                Learn more
-              </a>
-            </p>
           </div>
         </form>
       </div>
@@ -115,17 +280,18 @@ export const LoginPage = ({ onLogin }) => {
 };
 
 // Sidebar Component
-export const Sidebar = ({ activeSection, setActiveSection, isCollapsed, setIsCollapsed }) => {
+export const Sidebar = ({ activeSection, setActiveSection, isCollapsed, setIsCollapsed, user }) => {
   const menuItems = [
     { id: 'my-drive', name: 'My Drive', icon: '🗂️', count: null },
-    { id: 'shared', name: 'Shared with me', icon: '👥', count: 3 },
+    { id: 'shared', name: 'Shared with me', icon: '👥', count: null },
     { id: 'recent', name: 'Recent', icon: '🕒', count: null },
     { id: 'starred', name: 'Starred', icon: '⭐', count: null },
-    { id: 'trash', name: 'Trash', icon: '🗑️', count: 5 },
+    { id: 'trash', name: 'Trash', icon: '🗑️', count: null },
   ];
 
-  const storageUsed = 68;
-  const storageTotal = 100;
+  const storageUsed = user ? Math.round((user.storage_used / user.storage_limit) * 100) : 0;
+  const storageUsedGB = user ? (user.storage_used / (1024 * 1024 * 1024)).toFixed(2) : 0;
+  const storageLimitGB = user ? (user.storage_limit / (1024 * 1024 * 1024)).toFixed(0) : 15;
 
   return (
     <div className={`bg-gray-900 border-r border-gray-800 transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'} flex flex-col`}>
@@ -138,15 +304,6 @@ export const Sidebar = ({ activeSection, setActiveSection, isCollapsed, setIsCol
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        
-        {!isCollapsed && (
-          <button className="w-full mt-4 bg-gray-800 hover:bg-gray-700 text-white px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2L13.09 8.26L22 9L13.09 9.74L12 16L10.91 9.74L2 9L10.91 8.26L12 2Z"/>
-            </svg>
-            <span className="font-medium">New</span>
-          </button>
-        )}
       </div>
 
       <nav className="flex-1 px-4">
@@ -178,33 +335,31 @@ export const Sidebar = ({ activeSection, setActiveSection, isCollapsed, setIsCol
         </ul>
       </nav>
 
-      {!isCollapsed && (
+      {!isCollapsed && user && (
         <div className="p-4 border-t border-gray-800">
           <div className="text-sm text-gray-400 mb-2">Storage</div>
           <div className="flex items-center space-x-2 mb-2">
             <div className="flex-1 bg-gray-800 rounded-full h-2">
               <div 
                 className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${storageUsed}%` }}
+                style={{ width: `${Math.min(storageUsed, 100)}%` }}
               ></div>
             </div>
             <span className="text-xs text-gray-400">{storageUsed}%</span>
           </div>
           <div className="text-xs text-gray-400">
-            {storageUsed} GB of {storageTotal} GB used
+            {storageUsedGB} GB of {storageLimitGB} GB used
           </div>
-          <button className="w-full mt-2 text-xs text-blue-400 hover:text-blue-300 py-2 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors">
-            Buy storage
-          </button>
         </div>
       )}
     </div>
   );
 };
 
-// Header Component
-export const Header = ({ user, onLogout, viewMode, setViewMode, searchQuery, setSearchQuery }) => {
+// Header Component  
+export const Header = ({ user, onLogout, viewMode, setViewMode, searchQuery, setSearchQuery, onCreateNew }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
 
   return (
     <header className="bg-gray-900 border-b border-gray-800 px-6 py-4">
@@ -217,6 +372,45 @@ export const Header = ({ user, onLogout, viewMode, setViewMode, searchQuery, set
               </svg>
             </div>
             <h1 className="text-xl font-semibold text-white">Drive</h1>
+          </div>
+
+          <div className="relative">
+            <button
+              onClick={() => setShowCreateMenu(!showCreateMenu)}
+              className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2L13.09 8.26L22 9L13.09 9.74L12 16L10.91 9.74L2 9L10.91 8.26L12 2Z"/>
+              </svg>
+              <span>New</span>
+            </button>
+
+            {showCreateMenu && (
+              <div className="absolute left-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50">
+                <div className="p-2">
+                  <button
+                    onClick={() => {
+                      onCreateNew('folder');
+                      setShowCreateMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-gray-300 hover:bg-gray-700 rounded-lg flex items-center space-x-2"
+                  >
+                    <span>📁</span>
+                    <span>New folder</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      onCreateNew('upload');
+                      setShowCreateMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-gray-300 hover:bg-gray-700 rounded-lg flex items-center space-x-2"
+                  >
+                    <span>📎</span>
+                    <span>File upload</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -264,7 +458,7 @@ export const Header = ({ user, onLogout, viewMode, setViewMode, searchQuery, set
             >
               <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                 <span className="text-white text-sm font-medium">
-                  {user.name.charAt(0).toUpperCase()}
+                  {user?.name?.charAt(0)?.toUpperCase() || 'U'}
                 </span>
               </div>
             </button>
@@ -275,21 +469,18 @@ export const Header = ({ user, onLogout, viewMode, setViewMode, searchQuery, set
                   <div className="flex items-center space-x-3">
                     <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                       <span className="text-white text-lg font-medium">
-                        {user.name.charAt(0).toUpperCase()}
+                        {user?.name?.charAt(0)?.toUpperCase() || 'U'}
                       </span>
                     </div>
                     <div>
-                      <div className="text-white font-medium">{user.name}</div>
-                      <div className="text-gray-400 text-sm">{user.email}</div>
+                      <div className="text-white font-medium">{user?.name || 'User'}</div>
+                      <div className="text-gray-400 text-sm">{user?.email || 'user@example.com'}</div>
                     </div>
                   </div>
                 </div>
                 <div className="p-2">
                   <button className="w-full text-left px-4 py-2 text-gray-300 hover:bg-gray-700 rounded-lg">
-                    Manage your Google Account
-                  </button>
-                  <button className="w-full text-left px-4 py-2 text-gray-300 hover:bg-gray-700 rounded-lg">
-                    Settings
+                    Manage your Account
                   </button>
                   <button 
                     onClick={onLogout}
