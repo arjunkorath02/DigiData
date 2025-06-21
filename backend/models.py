@@ -101,7 +101,7 @@ class UploadResponse(BaseModel):
 class FolderContents(BaseModel):
     folder: Optional[FileItemResponse]
     items: List[FileItemResponse]
-    breadcrumbs: List[Dict[str, str]]
+    breadcrumbs: List[Dict[str, Optional[str]]]
 
 class SearchResults(BaseModel):
     items: List[FileItemResponse]
