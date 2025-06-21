@@ -840,18 +840,197 @@ export const Dashboard = ({ user, onLogout }) => {
   const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
   const [files, setFiles] = useState([]);
+  const [currentFolder, setCurrentFolder] = useState(null);
+  const [breadcrumbs, setBreadcrumbs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const filteredFiles = files.filter(file =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Load files based on current section and folder
+  const loadFiles = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      let response;
+      
+      switch (activeSection) {
+        case 'my-drive':
+          response = await apiService.getFiles(currentFolder?.id);
+          setFiles(response.items || []);
+          setBreadcrumbs(response.breadcrumbs || []);
+          break;
+        case 'recent':
+          response = await apiService.getRecentFiles();
+          setFiles(Array.isArray(response) ? response : []);
+          setBreadcrumbs([{ id: null, name: 'Recent' }]);
+          break;
+        case 'starred':
+          response = await apiService.getStarredFiles();
+          setFiles(Array.isArray(response) ? response : []);
+          setBreadcrumbs([{ id: null, name: 'Starred' }]);
+          break;
+        case 'shared':
+          response = await apiService.getSharedFiles();
+          setFiles(Array.isArray(response) ? response : []);
+          setBreadcrumbs([{ id: null, name: 'Shared with me' }]);
+          break;
+        case 'trash':
+          response = await apiService.getTrashedFiles();
+          setFiles(Array.isArray(response) ? response : []);
+          setBreadcrumbs([{ id: null, name: 'Trash' }]);
+          break;
+        default:
+          setFiles([]);
+          setBreadcrumbs([]);
+      }
+    } catch (err) {
+      setError('Failed to load files: ' + (err.response?.data?.detail || err.message));
+      setFiles([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  // Search files
+  const searchFiles = async () => {
+    if (!searchQuery.trim()) {
+      loadFiles();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await apiService.searchFiles(searchQuery);
+      setFiles(response.items || []);
+      setBreadcrumbs([{ id: null, name: `Search results for "${searchQuery}"` }]);
+    } catch (err) {
+      setError('Search failed: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle file click (open folder or download file)
   const handleFileClick = (file) => {
     if (file.type === 'folder') {
-      console.log('Opening folder:', file.name);
+      setCurrentFolder(file);
+      setActiveSection('my-drive'); // Always switch to my-drive when navigating folders
     } else {
-      console.log('Opening file:', file.name);
+      handleFileAction(file, 'download');
     }
+  };
+
+  // Handle file actions
+  const handleFileAction = async (file, action) => {
+    try {
+      switch (action) {
+        case 'download':
+          if (file.type === 'file') {
+            const response = await apiService.downloadFile(file.id);
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', file.name);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+          }
+          break;
+        case 'star':
+          await apiService.updateFile(file.id, { is_starred: !file.is_starred });
+          loadFiles(); // Refresh to show updated star status
+          break;
+        case 'delete':
+          if (window.confirm(`Are you sure you want to delete "${file.name}"?`)) {
+            await apiService.deleteFile(file.id);
+            loadFiles(); // Refresh to show changes
+          }
+          break;
+        default:
+          console.log('Action not implemented:', action);
+      }
+    } catch (err) {
+      setError('Action failed: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  // Handle breadcrumb navigation
+  const handleBreadcrumbNavigate = (folderId) => {
+    if (folderId) {
+      // Find the folder object to set as current
+      // For now, we'll just set the ID and let loadFiles handle it
+      setCurrentFolder({ id: folderId });
+    } else {
+      setCurrentFolder(null);
+    }
+  };
+
+  // Handle file upload
+  const handleFileUpload = async (file) => {
+    try {
+      await apiService.uploadFile(file, currentFolder?.id);
+      loadFiles(); // Refresh to show uploaded file
+    } catch (err) {
+      throw new Error('Upload failed: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  // Handle folder creation
+  const handleFolderCreate = async (name) => {
+    try {
+      await apiService.createFolder(name, currentFolder?.id);
+      loadFiles(); // Refresh to show new folder
+    } catch (err) {
+      throw new Error('Folder creation failed: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  // Handle create new action
+  const handleCreateNew = (type) => {
+    if (type === 'folder') {
+      setShowCreateFolderModal(true);
+    } else if (type === 'upload') {
+      setShowUploadModal(true);
+    }
+  };
+
+  // Load files when section or folder changes
+  useEffect(() => {
+    loadFiles();
+  }, [activeSection, currentFolder]);
+
+  // Handle search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (searchQuery.trim()) {
+        searchFiles();
+      } else {
+        loadFiles();
+      }
+    }, 500); // Debounce search
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
+
+  // Reset current folder when changing sections (except my-drive)
+  useEffect(() => {
+    if (activeSection !== 'my-drive') {
+      setCurrentFolder(null);
+    }
+  }, [activeSection]);
+
+  const getSectionTitle = () => {
+    const titles = {
+      'my-drive': 'My Drive',
+      'shared': 'Shared with me',
+      'recent': 'Recent',
+      'starred': 'Starred',
+      'trash': 'Trash'
+    };
+    return titles[activeSection] || 'Drive';
   };
 
   return (
@@ -863,6 +1042,7 @@ export const Dashboard = ({ user, onLogout }) => {
         setViewMode={setViewMode}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        onCreateNew={handleCreateNew}
       />
       
       <div className="flex flex-1 overflow-hidden">
@@ -871,38 +1051,83 @@ export const Dashboard = ({ user, onLogout }) => {
           setActiveSection={setActiveSection}
           isCollapsed={isCollapsed}
           setIsCollapsed={setIsCollapsed}
+          user={user}
         />
         
         <div className="flex-1 overflow-auto">
           <div className="p-6">
+            {error && (
+              <div className="bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded-lg mb-4">
+                {error}
+                <button 
+                  onClick={() => setError('')}
+                  className="float-right text-red-300 hover:text-red-100"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-semibold text-white capitalize">
-                {activeSection.replace('-', ' ')}
+              <h2 className="text-2xl font-semibold text-white">
+                {getSectionTitle()}
               </h2>
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <span>Upload</span>
-              </button>
+              
+              {activeSection === 'my-drive' && (
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => setShowCreateFolderModal(true)}
+                    className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                  >
+                    <span>📁</span>
+                    <span>New folder</span>
+                  </button>
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <span>Upload</span>
+                  </button>
+                </div>
+              )}
             </div>
+
+            {activeSection === 'my-drive' && breadcrumbs.length > 0 && (
+              <Breadcrumb 
+                breadcrumbs={breadcrumbs} 
+                onNavigate={handleBreadcrumbNavigate}
+              />
+            )}
             
-            {filteredFiles.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                <p className="text-gray-400 mt-2">Loading...</p>
+              </div>
+            ) : files.length === 0 ? (
               <div className="text-center py-12">
                 <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <h3 className="text-xl font-medium text-gray-300 mb-2">No files found</h3>
-                <p className="text-gray-400">Try adjusting your search or upload some files.</p>
+                <h3 className="text-xl font-medium text-gray-300 mb-2">
+                  {searchQuery ? 'No files found' : 'No files here'}
+                </h3>
+                <p className="text-gray-400">
+                  {searchQuery 
+                    ? 'Try adjusting your search or upload some files.' 
+                    : 'Upload files or create folders to get started.'
+                  }
+                </p>
               </div>
             ) : (
               <FileGrid
-                files={filteredFiles}
+                files={files}
                 viewMode={viewMode}
                 onFileClick={handleFileClick}
+                onFileAction={handleFileAction}
               />
             )}
           </div>
@@ -912,6 +1137,13 @@ export const Dashboard = ({ user, onLogout }) => {
       <UploadModal 
         isOpen={showUploadModal} 
         onClose={() => setShowUploadModal(false)} 
+        onUpload={handleFileUpload}
+      />
+
+      <CreateFolderModal
+        isOpen={showCreateFolderModal}
+        onClose={() => setShowCreateFolderModal(false)}
+        onCreate={handleFolderCreate}
       />
     </div>
   );
